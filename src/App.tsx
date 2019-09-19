@@ -1,24 +1,29 @@
-import React from 'react';
-import logo from './logo.svg';
+import React, { useEffect, useState } from 'react';
 import './App.css';
+import { createGame, GameState } from './GameEngine';
 
 const App: React.FC = () => {
+
+  const [gameState, setGameState] = useState<undefined | GameState>(undefined);
+
+  useEffect(() => createGame({ 
+    cutter: { 
+      left: 40, 
+      width: 20 
+    }, 
+    generator: { 
+      maxItems: 10, 
+      interval: 1000 
+    }, 
+    controls: {
+      subscribe: () => {},
+      unsubscribe: () => {}
+    },
+    onChange: setGameState, 
+  }), []);
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      {JSON.stringify(gameState, undefined, '\n')}
     </div>
   );
 }
