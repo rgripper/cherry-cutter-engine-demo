@@ -1,10 +1,9 @@
 import { Observable, interval, Observer, merge } from 'rxjs';
-import { scan, map, take, takeUntil, takeWhile } from 'rxjs/operators';
+import { scan, map, take, takeWhile } from 'rxjs/operators';
 
 export type GameState = {
   items: FallingItem[];
-  itemsCut: number;
-  itemsMissed: number;
+  isFinished: boolean;
   cutter: Cutter;
   direction: Direction;
 }
@@ -45,8 +44,7 @@ export function createGame({ onChange, cutter, generator, controls }: CreateGame
 
   const initialState: GameState = {
     items: [],
-    itemsCut: 0,
-    itemsMissed: 0,
+    isFinished: false,
     cutter,
     direction: null
   }
@@ -69,10 +67,12 @@ export function createGame({ onChange, cutter, generator, controls }: CreateGame
   const timeDeltaEvents$ = stateCalc$.pipe(map(() => ({ delta: calcInterval })));
 
   const events$ = merge(newItemEvents$, directionEvents$, timeDeltaEvents$);
+  const _reduceGameState = (prevState: GameState, event: GameEvent) => reduceGameState(prevState, event, generator.maxItems)
 
   const mainSubscription = events$
-    .pipe(scan(reduceGameState, initialState), takeWhile(state => state.items.length < generator.maxItems || state.items.some(isItemActive), true))
+    .pipe(scan(_reduceGameState, initialState), takeWhile(state => !state.isFinished, true))
     .subscribe(onChange);
+
 
   return () => {
     controls.unsubscribe();
@@ -86,7 +86,7 @@ type GameEvent = {
   direction?: Direction;
 }
 
-function reduceGameState(prevState: GameState, event: GameEvent): GameState {
+function reduceGameState(prevState: GameState, event: GameEvent, maxItems: number): GameState {
   const { newItem, direction, delta } = event;
 
   if (newItem !== undefined) {
@@ -107,16 +107,17 @@ function reduceGameState(prevState: GameState, event: GameEvent): GameState {
     const itemSpeed = 0.025; // percents per millisecond
     const cutterSpeed = 0.040; // percents per millisecond
     const reduceItemState = (item: FallingItem) => {
-      if (isItemActive(item) === false) return item;
+      if (isItemGone(item)) return item;
       const top = item.top + itemSpeed * delta;
       return ({ ...item, top, isCut: itemIntersectsCutter(item, prevState.cutter), isMissed: item.top >= 100 });
     };
 
-    const itemsInGame = prevState.items.map(reduceItemState);
+    const updatedItems = prevState.items.map(reduceItemState);
     const cutterLeft = Math.min(Math.max(prevState.cutter.left + cutterSpeed * delta, 100 - prevState.cutter.width), 0);
     return {
       ...prevState,
-      items: itemsInGame,
+      items: updatedItems,
+      isFinished: isGameFinished(updatedItems, maxItems),
       cutter: {
         ...prevState.cutter,
         left: cutterLeft
@@ -127,8 +128,12 @@ function reduceGameState(prevState: GameState, event: GameEvent): GameState {
   throw new Error('Must not fall here: event was empty?');
 }
 
-function isItemActive(item: FallingItem) {
-  return !item.isCut && !item.isMissed;
+function isGameFinished(items: FallingItem[], maxItems: number): boolean {
+  return items.length === maxItems && items.every(isItemGone);
+}
+
+function isItemGone(item: FallingItem) {
+  return item.isCut || item.isMissed;
 }
 
 function itemIntersectsCutter (item: FallingItem, cutter: Cutter) {

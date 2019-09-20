@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import './App.css';
-import { createGame, GameState } from './GameEngine';
+import { createGame, GameState } from './game-enginee';
 
 const App: React.FC = () => {
 
-  const [gameState, setGameState] = useState<undefined | GameState>(undefined);
+  const [gameState, setGameState] = useState<null | GameState>(null);
 
   useEffect(() => createGame({ 
     cutter: { 
@@ -23,7 +23,15 @@ const App: React.FC = () => {
   }), []);
   return (
     <div className="App">
-      {JSON.stringify(gameState, undefined, '\n')}
+       {gameState && (
+       <>
+        <div style={{position: 'relative', width: '100vw', height: '80vh'}}>
+          {gameState.items.map(item => <div key={item.id} style={{transition: 'top 0.25s', left: item.left + '%', top: item.top + '%', width: item.width + '%', height: '10%', display: 'inline-block', position: 'absolute', backgroundColor: '#ffff00'}}>{item.id}</div>)}
+        </div>
+        <div>{gameState.isFinished ? 'Finished' : 'Running'}</div>
+        </>
+      )
+      }
     </div>
   );
 }
