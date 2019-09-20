@@ -1,4 +1,4 @@
-import { Observable, interval, Observer, merge } from 'rxjs';
+import { interval, merge, Subject } from 'rxjs';
 import { scan, map, take, takeWhile } from 'rxjs/operators';
 
 export type GameState = {
@@ -17,30 +17,26 @@ type FallingItem = {
   isMissed: boolean;
 }
 
-type Cutter = { left: number; width: number; }
+type Cutter = { left: number; width: number; height: number; top: number; }
 
 type Milliseconds = number;
 
 type Direction = 'right' | 'left' | null;
 
 type CreateGameParams = { 
-  onChange: (gameState: GameState) => void;
+  onChange(gameState: GameState): void;
   generator: {
     maxItems: number;
     interval: Milliseconds;
   }
   cutter: Cutter
-  controls: { 
-    subscribe(callback: (direction: Direction) => void): void; 
-    unsubscribe(): void; 
-  }
 }
 
-export function createGame({ onChange, cutter, generator, controls }: CreateGameParams): () => void {
+export function createGame({ onChange, cutter, generator }: CreateGameParams) {
 
   const itemWidth = 10;
 
-  const randomItemLeft = () => Math.round(Math.random() * 100 - itemWidth);
+  const randomItemLeft = () => Math.round(Math.random() * (100 - itemWidth));
 
   const initialState: GameState = {
     items: [],
@@ -51,32 +47,33 @@ export function createGame({ onChange, cutter, generator, controls }: CreateGame
 
   const calcInterval = 100;
   const stateCalc$ = interval(calcInterval);
-  const acceleratorData$: Observable<Direction> = Observable.create((observer: Observer<Direction>) => {
-    controls.subscribe(direction => observer.next(direction));
-  });
+
+  const directions$: Subject<Direction> = new Subject<Direction>();
 
   const newItemEvents$ = interval(generator.interval).pipe(
     map<number, { newItem: FallingItem }>(id => ({ newItem: { id, left: randomItemLeft(), top: 0, width: itemWidth, isCut: false, isMissed: false } })),
     take(generator.maxItems)
   );
 
-  const directionEvents$ = acceleratorData$.pipe(
+  const directionEvents$ = directions$.pipe(
     map(direction => ({ direction }))
   );
   
   const timeDeltaEvents$ = stateCalc$.pipe(map(() => ({ delta: calcInterval })));
 
   const events$ = merge(newItemEvents$, directionEvents$, timeDeltaEvents$);
-  const _reduceGameState = (prevState: GameState, event: GameEvent) => reduceGameState(prevState, event, generator.maxItems)
+  const _reduceGameState = (prevState: GameState, event: GameEvent) => reduceGameState(prevState, event, generator.maxItems);
 
   const mainSubscription = events$
     .pipe(scan(_reduceGameState, initialState), takeWhile(state => !state.isFinished, true))
     .subscribe(onChange);
 
 
-  return () => {
-    controls.unsubscribe();
-    mainSubscription.unsubscribe();
+  return {
+    setDirection: (direction: Direction) => directions$.next(direction),
+    stop: () => {
+      mainSubscription.unsubscribe();
+    }
   };
 }
 
@@ -105,15 +102,19 @@ function reduceGameState(prevState: GameState, event: GameEvent, maxItems: numbe
   
   if (delta !== undefined) {
     const itemSpeed = 0.025; // percents per millisecond
-    const cutterSpeed = 0.040; // percents per millisecond
+    const cutterSpeed = 0.030; // percents per millisecond
     const reduceItemState = (item: FallingItem) => {
       if (isItemGone(item)) return item;
       const top = item.top + itemSpeed * delta;
-      return ({ ...item, top, isCut: itemIntersectsCutter(item, prevState.cutter), isMissed: item.top >= 100 });
+      const isCut = itemIntersectsCutter(item, prevState.cutter);
+      return ({ ...item, top, isCut, isMissed: item.top >= 100 });
     };
 
     const updatedItems = prevState.items.map(reduceItemState);
-    const cutterLeft = Math.min(Math.max(prevState.cutter.left + cutterSpeed * delta, 100 - prevState.cutter.width), 0);
+    const cutterSpeedDirected = prevState.direction === 'left' ? -cutterSpeed : prevState.direction === 'right' ? cutterSpeed : 0;
+    
+    const cutterLeft = Math.max(Math.min(prevState.cutter.left + cutterSpeedDirected * delta, 100 - prevState.cutter.width), 0);
+
     return {
       ...prevState,
       items: updatedItems,
@@ -137,5 +138,12 @@ function isItemGone(item: FallingItem) {
 }
 
 function itemIntersectsCutter (item: FallingItem, cutter: Cutter) {
-  return item.top > 95 && ((item.left < cutter.left) || (item.left + item.width > cutter.left + cutter.width));
+  return (item.top + 5) > cutter.top && intersect(
+    { left: item.left, right: item.left + item.width }, 
+    { left: cutter.left, right: cutter.left + cutter.width }
+  );
+}
+
+function intersect(a: { left: number, right: number }, b: { left: number, right: number }) {
+  return Math.max(a.left, b.left) < Math.min(a.right, b.right);
 }
