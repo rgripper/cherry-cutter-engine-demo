@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './App.css';
-import { createGame, GameState } from './game-enginee';
+import { createGame, GameState } from './game-engine';
 
 const App: React.FC = () => {
 
